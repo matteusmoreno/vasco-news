@@ -1,66 +1,45 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import useEmblaCarousel from 'embla-carousel-react'
-import Autoplay from 'embla-carousel-autoplay'
-import { motion, useReducedMotion } from 'framer-motion'
-import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { ArrowUpRight } from 'lucide-react'
 import { getArticles } from '../api'
-import { formatRelative, kickerFor, sourceLabel, titleKey, topKeywords } from '../format'
+import { formatRelative, kickerFor, sourceLabel, titleKey } from '../format'
 import { usePageMeta } from '../usePageMeta'
 import { usePortal } from '../portal'
-import { PageSkeleton, StateMessage, StoryCard, StoryGrid, StoryPlate } from '../components/Story'
+import { Cross } from '../components/Cross'
+import { PageSkeleton, StateMessage, StoryGrid, StoryPlate } from '../components/Story'
 
-function Spotlight({ articles }) {
-  const reduce = useReducedMotion()
-  const [emblaRef, emblaApi] = useEmblaCarousel(
-    { align: 'start', loop: articles.length > 2, dragFree: false },
-    reduce ? [] : [Autoplay({ delay: 4800, stopOnInteraction: true, stopOnMouseEnter: true })],
-  )
-  const [canPrev, setCanPrev] = useState(false)
-  const [canNext, setCanNext] = useState(false)
+const SLIDE_MS = 6000
+const GRID_COUNT = 18
+const HIGHLIGHT_COUNT = 50
 
-  useEffect(() => {
-    if (!emblaApi) return undefined
-    const sync = () => {
-      setCanPrev(emblaApi.canScrollPrev())
-      setCanNext(emblaApi.canScrollNext())
-    }
-    const frame = requestAnimationFrame(sync)
-    emblaApi.on('select', sync)
-    emblaApi.on('reInit', sync)
-    return () => {
-      cancelAnimationFrame(frame)
-      emblaApi.off('select', sync)
-      emblaApi.off('reInit', sync)
-    }
-  }, [emblaApi])
+function filledGrid(items) {
+  if (items.length < 6) return items
+  const remainder = items.length % 6
+  return remainder === 0 ? items : items.slice(0, items.length - remainder)
+}
 
-  if (!articles.length) return null
+function uniqueArticles(list) {
+  const seenIds = new Set()
+  const seenTitles = new Set()
+  const items = []
+  for (const article of list) {
+    if (!article || seenIds.has(article.articleId)) continue
+    const key = titleKey(article.title)
+    if (key && seenTitles.has(key)) continue
+    seenIds.add(article.articleId)
+    if (key) seenTitles.add(key)
+    items.push(article)
+  }
+  return items
+}
 
-  return (
-    <section className="spotlight" aria-label="Mais manchetes">
-      <div className="section-row">
-        <h2>Na rodada</h2>
-        <div className="carousel-nav">
-          <button type="button" aria-label="Anterior" onClick={() => emblaApi?.scrollPrev()} disabled={!canPrev}>
-            <ChevronLeft size={18} />
-          </button>
-          <button type="button" aria-label="Próxima" onClick={() => emblaApi?.scrollNext()} disabled={!canNext}>
-            <ChevronRight size={18} />
-          </button>
-        </div>
-      </div>
-      <div className="embla" ref={emblaRef}>
-        <div className="embla-track">
-          {articles.map((article) => (
-            <div className="embla-slide" key={article.articleId}>
-              <StoryCard article={article} />
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
+function newestFirst(articles) {
+  return [...articles].sort((left, right) => {
+    const leftTime = new Date(left.publishedAt).getTime()
+    const rightTime = new Date(right.publishedAt).getTime()
+    return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime)
+  })
 }
 
 export function HomePage() {
@@ -69,17 +48,20 @@ export function HomePage() {
   const [state, setState] = useState({
     portalId: portal.portalId,
     status: 'loading',
-    lead: null,
+    slides: [],
     rail: [],
     rest: [],
     error: null,
   })
+  const [cursor, setCursor] = useState({ key: '', index: 0 })
+  const [hovering, setHovering] = useState(false)
+  const [hidden, setHidden] = useState(false)
 
   if (state.portalId !== portal.portalId) {
     setState({
       portalId: portal.portalId,
       status: 'loading',
-      lead: null,
+      slides: [],
       rail: [],
       rest: [],
       error: null,
@@ -93,42 +75,33 @@ export function HomePage() {
     const portalId = portal.portalId
 
     Promise.all([
-      getArticles(portalId, { highlighted: true, size: 6 }),
-      getArticles(portalId, { size: 15 }),
+      getArticles(portalId, { highlighted: true, size: HIGHLIGHT_COUNT }),
+      getArticles(portalId, { size: GRID_COUNT + HIGHLIGHT_COUNT }),
     ])
       .then(([highlights, latest]) => {
         if (cancelled) return
-        const highlightItems = highlights.items ?? []
-        const latestItems = latest.items ?? []
-        const seenIds = new Set()
-        const seenTitles = new Set()
-        const fresh = (article) => {
-          if (!article || seenIds.has(article.articleId)) return false
+        const highlightItems = newestFirst(uniqueArticles(highlights.items ?? [])).slice(0, 4)
+        const latestItems = uniqueArticles(latest.items ?? [])
+        const slides = highlightItems.length ? highlightItems : latestItems.slice(0, 1)
+        const slideIds = new Set(slides.map((article) => article.articleId))
+        const slideTitles = new Set(slides.map((article) => titleKey(article.title)).filter(Boolean))
+        const pool = latestItems.filter((article) => {
+          if (slideIds.has(article.articleId)) return false
           const key = titleKey(article.title)
-          if (key && seenTitles.has(key)) return false
-          seenIds.add(article.articleId)
-          if (key) seenTitles.add(key)
-          return true
-        }
-        const lead = highlightItems.find(fresh) ?? latestItems.find(fresh) ?? null
-        const rail = []
-        for (const article of [...highlightItems, ...latestItems]) {
-          if (!fresh(article)) continue
-          rail.push(article)
-          if (rail.length === 6) break
-        }
+          return !key || !slideTitles.has(key)
+        })
         setState({
           portalId,
           status: 'ready',
-          lead,
-          rail,
-          rest: latestItems.filter(fresh),
+          slides,
+          rail: highlightItems,
+          rest: filledGrid(pool.slice(0, GRID_COUNT)),
           error: null,
         })
       })
       .catch((error) => {
         if (!cancelled) {
-          setState({ portalId, status: 'error', lead: null, rail: [], rest: [], error })
+          setState({ portalId, status: 'error', slides: [], rail: [], rest: [], error })
         }
       })
 
@@ -136,6 +109,34 @@ export function HomePage() {
       cancelled = true
     }
   }, [portal.portalId])
+
+  const slideKey = state.slides.map((article) => article.articleId).join('|')
+  if (cursor.key !== slideKey) {
+    setCursor({ key: slideKey, index: 0 })
+  }
+  const slideCount = state.slides.length
+  const index = cursor.key === slideKey ? cursor.index : 0
+  const activeIndex = slideCount ? index % slideCount : 0
+  const active = state.slides[activeIndex] ?? null
+
+  useEffect(() => {
+    function onVisibility() {
+      setHidden(document.hidden)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  useEffect(() => {
+    if (reduce || hovering || hidden || slideCount < 2) return undefined
+    const timer = window.setInterval(() => {
+      setCursor((current) => ({
+        key: slideKey,
+        index: ((current.key === slideKey ? current.index : 0) + 1) % slideCount,
+      }))
+    }, SLIDE_MS)
+    return () => window.clearInterval(timer)
+  }, [reduce, hovering, hidden, slideCount, slideKey, activeIndex])
 
   if (state.status === 'loading') {
     return (
@@ -147,7 +148,7 @@ export function HomePage() {
   if (state.status === 'error') {
     return <StateMessage title="Não foi possível abrir a capa" text={state.error?.message} />
   }
-  if (!state.lead) {
+  if (!active) {
     return (
       <StateMessage
         title="A redação ainda não publicou"
@@ -156,59 +157,115 @@ export function HomePage() {
     )
   }
 
-  const keywords = topKeywords([state.lead, ...state.rail, ...state.rest], 6)
-  const source = sourceLabel(state.lead)
+  const source = sourceLabel(active)
+  const desk = state.rail
+  const latest = state.rest
 
   return (
-    <div className="page home">
+    <div className="home">
       <motion.section
-        className="hero"
+        className="shell lead"
+        aria-label="Manchete"
         initial={reduce ? false : { opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
       >
-        <Link className="hero-card" to={`/noticia/${state.lead.slug}`}>
-          <div className="hero-copy">
-            <p className="pill">
-              <span className="live-dot" />
-              {kickerFor(state.lead, categories)}
-            </p>
-            <h1>{state.lead.title}</h1>
-            {state.lead.summary ? <p className="dek">{state.lead.summary}</p> : null}
-            <div className="hero-meta">
-              <time dateTime={state.lead.publishedAt}>{formatRelative(state.lead.publishedAt)}</time>
-              {source ? <span>{source}</span> : null}
-              <span className="hero-cta">
-                Ler matéria
-                <ArrowUpRight size={18} aria-hidden="true" />
-              </span>
+        <div
+          className="lead-stage"
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+          onFocus={() => setHovering(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setHovering(false)
+          }}
+        >
+          <Link className="lead-main" to={`/noticia/${active.slug}`}>
+            <div className="lead-slides">
+              <AnimatePresence initial={false}>
+                <motion.div
+                  key={active.articleId}
+                  className="lead-slide"
+                  initial={reduce ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={reduce ? undefined : { opacity: 0 }}
+                  transition={{ duration: reduce ? 0 : 0.55, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <StoryPlate article={active} className="lead-plate" />
+                  <div className="lead-shade" />
+                  <div className="lead-copy">
+                    <p className="pill">
+                      <span className="live-dot" />
+                      {kickerFor(active, categories)}
+                    </p>
+                    <h1>{active.title}</h1>
+                    {active.summary ? <p className="dek">{active.summary}</p> : null}
+                    <div className="hero-meta">
+                      <time dateTime={active.publishedAt}>{formatRelative(active.publishedAt)}</time>
+                      {source ? <span>{source}</span> : null}
+                    </div>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
             </div>
-          </div>
-          <StoryPlate article={state.lead} className="hero-plate" />
-        </Link>
+            <Cross className="lead-mark" />
+          </Link>
+          {slideCount > 1 && slideCount <= 6 ? (
+            <div className="lead-dots" role="tablist" aria-label="Manchetes em destaque">
+              {state.slides.map((article, slideIndex) => (
+                <button
+                  key={article.articleId}
+                  type="button"
+                  role="tab"
+                  aria-selected={slideIndex === activeIndex}
+                  aria-label={article.title}
+                  className={slideIndex === activeIndex ? 'is-on' : undefined}
+                  onClick={() => setCursor({ key: slideKey, index: slideIndex })}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {desk.length ? (
+          <aside className="lead-rail" aria-label="Mais manchetes">
+            <p className="rail-label">Nesta edição</p>
+            <div className="rail-list">
+            {desk.map((article, itemIndex) => (
+              <Link
+                key={article.articleId}
+                className={article.articleId === active?.articleId ? 'rail-item is-on' : 'rail-item'}
+                to={`/noticia/${article.slug}`}
+              >
+                <StoryPlate article={article} className="rail-plate" />
+                <div className="rail-copy">
+                  <p className="kicker">
+                    <span>{String(itemIndex + 1).padStart(2, '0')}</span>
+                    {kickerFor(article, categories)}
+                  </p>
+                  <h2>{article.title}</h2>
+                  <time dateTime={article.publishedAt}>{formatRelative(article.publishedAt)}</time>
+                </div>
+              </Link>
+            ))}
+            </div>
+          </aside>
+        ) : null}
       </motion.section>
 
-      {keywords.length ? (
-        <div className="topic-row" aria-label="Assuntos">
-          {keywords.map((keyword) => (
-            <Link key={keyword} to={`/busca?q=${encodeURIComponent(keyword)}`}>
-              {keyword}
-            </Link>
-          ))}
-        </div>
-      ) : null}
-
-      <Spotlight articles={state.rail} />
-
-      {state.rest.length ? (
-        <section className="latest">
-          <div className="section-row">
-            <h2>Últimas</h2>
-            <Link to="/ultimas">Ver arquivo</Link>
-          </div>
-          <StoryGrid articles={state.rest} />
-        </section>
-      ) : null}
+      <div className="shell home-body">
+        {latest.length ? (
+          <section className="latest">
+            <div className="section-row">
+              <h2>Últimas</h2>
+              <Link to="/ultimas">
+                Ver arquivo
+                <ArrowUpRight size={16} aria-hidden="true" />
+              </Link>
+            </div>
+            <StoryGrid articles={latest} />
+          </section>
+        ) : null}
+      </div>
     </div>
   )
 }

@@ -31,23 +31,48 @@ export function StoryPlate({ article, className = '' }) {
   )
 }
 
-export function StoryCard({ article }) {
+function ArticleFacts({ article, source, className = '' }) {
+  return (
+    <p className={`card-meta ${className}`.trim()}>
+      <time dateTime={article.publishedAt}>{formatRelative(article.publishedAt)}</time>
+      {source ? <span>{source}</span> : null}
+    </p>
+  )
+}
+
+export function StoryCard({ article, featured = false }) {
   const { categories } = usePortal()
   const source = sourceLabel(article)
 
   return (
-    <article className="card">
+    <article className={featured ? 'card featured' : 'card'}>
       <Link to={`/noticia/${article.slug}`}>
         <StoryPlate article={article} className="card-plate" />
         <div className="card-body">
           <p className="kicker">{kickerFor(article, categories)}</p>
           <h3>{article.title}</h3>
           {article.summary ? <p>{article.summary}</p> : null}
-          <p className="card-meta">
-            <time dateTime={article.publishedAt}>{formatRelative(article.publishedAt)}</time>
-            {source ? <span>{source}</span> : null}
-          </p>
+          <ArticleFacts article={article} source={source} />
         </div>
+      </Link>
+    </article>
+  )
+}
+
+function FeedItem({ article }) {
+  const { categories } = usePortal()
+  const source = sourceLabel(article)
+
+  return (
+    <article className="feed-item">
+      <Link to={`/noticia/${article.slug}`}>
+        <StoryPlate article={article} className="feed-plate" />
+        <div className="feed-copy">
+          <p className="kicker">{kickerFor(article, categories)}</p>
+          <h3>{article.title}</h3>
+          {article.summary ? <p>{article.summary}</p> : null}
+        </div>
+        <ArticleFacts article={article} source={source} className="feed-meta" />
       </Link>
     </article>
   )
@@ -83,8 +108,22 @@ export function StoryGrid({ articles }) {
   )
 }
 
-export function Feed(props) {
-  return <StoryGrid {...props} />
+export function Feed({ articles }) {
+  if (!articles?.length) return <p className="empty">Nenhuma matéria nesta lista.</p>
+  const [lead, ...rest] = articles
+
+  return (
+    <div className="feed">
+      <StoryCard article={lead} featured />
+      {rest.length ? (
+        <div className="feed-list">
+          {rest.map((article) => (
+            <FeedItem key={article.articleId} article={article} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function Pager({ page, size, total, onPage }) {

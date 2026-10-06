@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Check, Copy, ExternalLink } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { getArticle, getArticles } from '../api'
 import { articleParagraphs, formatDateTime, kickerFor, readingTime, sourceLabel } from '../format'
 import { usePageMeta } from '../usePageMeta'
@@ -18,13 +18,9 @@ export function ArticlePage() {
     related: [],
     error: null,
   })
-  const [notice, setNotice] = useState({ slug, text: '' })
 
   if (state.key !== requestKey) {
     setState({ key: requestKey, status: 'loading', article: null, related: [], error: null })
-  }
-  if (notice.slug !== slug) {
-    setNotice({ slug, text: '' })
   }
 
   usePageMeta(state.article?.title || 'Matéria', state.article?.summary)
@@ -76,21 +72,6 @@ export function ArticlePage() {
     return () => script.remove()
   }, [state.article])
 
-  useEffect(() => {
-    if (!notice.text) return undefined
-    const timer = setTimeout(() => setNotice({ slug, text: '' }), 2200)
-    return () => clearTimeout(timer)
-  }, [notice.text, slug])
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href)
-      setNotice({ slug, text: 'Link copiado' })
-    } catch {
-      setNotice({ slug, text: 'Não foi possível copiar o link' })
-    }
-  }
-
   if (state.status === 'loading') {
     return (
       <div className="page">
@@ -115,7 +96,6 @@ export function ArticlePage() {
   const article = state.article
   const paragraphs = articleParagraphs(article)
   const source = sourceLabel(article)
-  const copied = notice.text === 'Link copiado'
 
   return (
     <article className="story">
@@ -130,10 +110,6 @@ export function ArticlePage() {
             <time dateTime={article.publishedAt}>{formatDateTime(article.publishedAt)}</time>
             <span>{readingTime(`${article.summary || ''} ${article.body || ''}`)}</span>
             {source ? <span>{source}</span> : null}
-            <button type="button" className="button ghost" onClick={copyLink}>
-              {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-              {notice.text || 'Copiar link'}
-            </button>
           </div>
         </div>
       </header>
@@ -165,9 +141,11 @@ export function ArticlePage() {
                   <li key={item.newsItemId || item.url}>
                     {item.url ? (
                       <a href={item.url} target="_blank" rel="noopener noreferrer">
-                        <span>{item.sourceName || 'Fonte'}</span>
+                        <span>
+                          {item.sourceName || 'Fonte'}
+                          <ExternalLink size={13} aria-hidden="true" />
+                        </span>
                         <strong>{item.title || item.url}</strong>
-                        <ExternalLink size={14} aria-hidden="true" />
                       </a>
                     ) : (
                       <p>

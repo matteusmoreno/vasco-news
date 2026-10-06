@@ -36,7 +36,7 @@ export function Ticker({ portalId }) {
         >
           {loop.map((article, index) => (
             <Link key={`${article.articleId}-${index}`} to={`/noticia/${article.slug}`}>
-              {article.title}
+              <span>{article.title}</span>
             </Link>
           ))}
         </motion.div>

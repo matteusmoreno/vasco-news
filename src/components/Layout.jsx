@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from
 import { AnimatePresence, motion } from 'framer-motion'
 import { Menu, Search, X } from 'lucide-react'
 import clsx from 'clsx'
+import { formatEdition } from '../format'
 import { usePortal } from '../portal'
 import { Cross } from './Cross'
 import { PageSkeleton, StateMessage } from './Story'
@@ -44,16 +45,20 @@ function SearchForm({ id, autoFocus = false }) {
   )
 }
 
+function Mark({ portal, className }) {
+  if (portal?.theme?.logoUrl) {
+    return <img className={className} src={portal.theme.logoUrl} alt="" />
+  }
+  return <Cross className={className} />
+}
+
 function Brand({ portal }) {
   return (
     <Link to="/" className="brand">
-      {portal?.theme?.logoUrl ? (
-        <img className="brand-logo" src={portal.theme.logoUrl} alt="" />
-      ) : (
-        <Cross />
-      )}
-      <span>
-        Vasco <em>News</em>
+      <Mark portal={portal} className="brand-mark" />
+      <span className="brand-lockup">
+        <span className="brand-vasco">Vasco</span>
+        <span className="brand-news">News</span>
       </span>
     </Link>
   )
@@ -86,7 +91,14 @@ export function Layout() {
       <a className="skip" href="#conteudo">
         Ir para o conteúdo
       </a>
-      <header className="topbar">
+      <header className="masthead">
+        <div className="masthead-stripe" />
+        <div className="edition-bar">
+          <time dateTime={new Date().toISOString().slice(0, 10)}>{formatEdition()}</time>
+          <span className="edition-club">Club de Regatas Vasco da Gama</span>
+          <span className="edition-place">São Januário</span>
+        </div>
+        <div className="topbar">
         <div className="shell topbar-inner">
           <Brand portal={portal} />
           <nav className="desktop-nav" aria-label="Seções">
@@ -119,6 +131,7 @@ export function Layout() {
               <span className="sr-only">{menuOpen ? 'Fechar menu' : 'Abrir menu'}</span>
             </button>
           </div>
+        </div>
         </div>
       </header>
       <AnimatePresence>
@@ -179,14 +192,22 @@ export function Layout() {
       <footer className="footer">
         <div className="shell footer-grid">
           <div className="footer-brand">
-            <Cross />
-            <strong>Vasco News</strong>
-            <p>{portal?.description || 'Notícias do Vasco da Gama.'}</p>
+            <Mark portal={portal} className="footer-mark" />
+            <div>
+              <strong>Vasco News</strong>
+              <p>{portal?.description || 'A redação do Gigante da Colina.'}</p>
+            </div>
           </div>
-          <p>
-            Portal independente sobre o Club de Regatas Vasco da Gama. Cada matéria aponta a fonte original da apuração.
-          </p>
-          <p className="copyright">© {new Date().getFullYear()}</p>
+          <nav className="footer-nav" aria-label="Rodapé">
+            <Link to="/">Capa</Link>
+            <Link to="/ultimas">Últimas</Link>
+            {categories?.map((category) => (
+              <Link key={category.categoryId} to={`/categoria/${category.slug}`}>
+                {category.name}
+              </Link>
+            ))}
+          </nav>
+          <p className="copyright">© {new Date().getFullYear()} Vasco News</p>
         </div>
       </footer>
     </div>
